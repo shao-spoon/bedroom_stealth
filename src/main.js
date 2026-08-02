@@ -276,7 +276,13 @@ const AUDIO = {
 const DREAM_VIDEOS = ["video/xizhilang.mp4", "video/dabaojian.mp4"];
 
 const canvas = document.querySelector("#game");
-const ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d");
+const pillowOverlayCanvas = document.createElement("canvas");
+pillowOverlayCanvas.width = WIDTH;
+pillowOverlayCanvas.height = HEIGHT;
+pillowOverlayCanvas.className = "pillow-overlay";
+const pillowOverlayCtx = pillowOverlayCanvas.getContext("2d");
+document.body.appendChild(pillowOverlayCanvas);
 const failBackdropCanvas = document.createElement("canvas");
 failBackdropCanvas.width = WIDTH;
 failBackdropCanvas.height = HEIGHT;
@@ -597,6 +603,7 @@ function playMoneySound(amount) {
 }
 
 function replayStartGif() {
+  if (isBlockingCharacterDom()) return;
   positionIntroGif();
   introGif.src = `${ASSETS.weiStart}?play=${Date.now()}`;
   introGif.style.display = "block";
@@ -608,6 +615,7 @@ function hideStartGif() {
 }
 
 function showIdleGif() {
+  if (isBlockingCharacterDom()) return;
   const src = getIdleGifSrc();
   if (!idleGif.src.endsWith(src)) idleGif.src = src;
   positionIdleGif();
@@ -619,6 +627,7 @@ function hideIdleGif() {
 }
 
 function showWalkBackGif() {
+  if (isBlockingCharacterDom()) return;
   if (!walkBackGif.src.endsWith(ASSETS.weiWalkBack)) walkBackGif.src = ASSETS.weiWalkBack;
   positionWalkBackGif();
   walkBackGif.style.display = "block";
@@ -641,6 +650,16 @@ function hideWelcomeGif() {
   welcomeGif.style.display = "none";
   welcomeFrame.style.display = "none";
   welcomeStartButton.style.display = "none";
+}
+
+function isBlockingCharacterDom() {
+  return state.gameState === "GAME_OVER" || state.gameState === "SUCCESS" || state.gameState === "SUCCESS_SUMMARY" || state.gameState === "RESTART_TRANSITION";
+}
+
+function hideGameplayCharacterGifs() {
+  hideIdleGif();
+  hideWalkBackGif();
+  hideStartGif();
 }
 
 function showDadGif() {
@@ -681,6 +700,26 @@ function showTutorialHint(text) {
 
 function hideTutorialHint() {
   tutorialHintText.style.display = "none";
+}
+
+function withCanvasContext(nextCtx, draw) {
+  const previousCtx = ctx;
+  ctx = nextCtx;
+  draw();
+  ctx = previousCtx;
+}
+
+function positionPillowOverlay() {
+  const canvasRect = canvas.getBoundingClientRect();
+  pillowOverlayCanvas.style.left = `${canvasRect.left}px`;
+  pillowOverlayCanvas.style.top = `${canvasRect.top}px`;
+  pillowOverlayCanvas.style.width = `${canvasRect.width}px`;
+  pillowOverlayCanvas.style.height = `${canvasRect.height}px`;
+}
+
+function clearPillowOverlay() {
+  pillowOverlayCtx.clearRect(0, 0, WIDTH, HEIGHT);
+  pillowOverlayCanvas.style.display = "none";
 }
 
 function updateTutorialHint() {
@@ -1333,9 +1372,6 @@ function drawBedroom() {
   }
 
   showDadGif();
-  drawUsedPillowsNearDad();
-  drawPillowFlights();
-  drawPillows();
   drawPlayer();
   drawEventFlashOverlay(0.19);
 }
@@ -1587,6 +1623,24 @@ function drawPillows() {
   for (const pillow of PILLOW_ITEMS) {
     drawPillowImage(pillow.key, pillow.x, pillow.y, pillow.angle, 1, pillow.size, state.usedPillows.has(pillow.id));
   }
+}
+
+function drawPillowOverlay() {
+  const shouldShow =
+    state.viewMode !== "drawer_closeup" &&
+    !["WELCOME", "GAME_OVER", "SUCCESS", "SUCCESS_SUMMARY", "RESTART_TRANSITION"].includes(state.gameState);
+  if (!shouldShow) {
+    clearPillowOverlay();
+    return;
+  }
+  positionPillowOverlay();
+  pillowOverlayCtx.clearRect(0, 0, WIDTH, HEIGHT);
+  withCanvasContext(pillowOverlayCtx, () => {
+    drawUsedPillowsNearDad();
+    drawPillowFlights();
+    drawPillows();
+  });
+  pillowOverlayCanvas.style.display = "block";
 }
 
 function drawPillowImage(key, x, y, angle, scale, size, dimmed = false) {
@@ -2433,8 +2487,8 @@ function triggerGameOver() {
   stopGameMusic();
   stopDrawerMoveSound();
   playSound(sounds.failVoice);
-  hideIdleGif();
-  hideWalkBackGif();
+  hideGameplayCharacterGifs();
+  clearPillowOverlay();
 }
 
 function triggerSuccess() {
@@ -2452,8 +2506,8 @@ function triggerSuccess() {
   stopGameMusic();
   stopDrawerMoveSound();
   playSound(sounds.successVoice);
-  hideIdleGif();
-  hideWalkBackGif();
+  hideGameplayCharacterGifs();
+  clearPillowOverlay();
 }
 
 function enterDeployScreen() {
@@ -2755,6 +2809,7 @@ function update(dt) {
 
 function render() {
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  clearPillowOverlay();
   if (state.gameState !== "SUCCESS_SUMMARY") hideSummaryHomeButton();
   if (state.gameState === "WELCOME" || state.viewMode === "drawer_closeup" || state.gameState === "SUCCESS" || state.gameState === "SUCCESS_SUMMARY" || state.gameState === "GAME_OVER") {
     hideDeployHint();
@@ -2776,6 +2831,9 @@ function render() {
   }
 
   hideWelcomeGif();
+  if (state.gameState === "GAME_OVER" || state.gameState === "SUCCESS" || state.gameState === "SUCCESS_SUMMARY") {
+    hideGameplayCharacterGifs();
+  }
   if (state.viewMode === "drawer_closeup") {
     hideDadGif();
     hideIdleGif();
@@ -2786,6 +2844,7 @@ function render() {
     drawDeployUi();
   }
   drawHud();
+  drawPillowOverlay();
   updateTutorialHint();
 }
 
@@ -2996,6 +3055,7 @@ window.addEventListener("resize", () => {
   if (deployHintText.style.display !== "none") positionDeployHint();
   if (tutorialHintText.style.display !== "none") positionTutorialHint();
   if (dadGif.style.display !== "none") positionDadGif();
+  if (pillowOverlayCanvas.style.display !== "none") positionPillowOverlay();
   if (state.gameState === "WELCOME") positionWelcomeOverlays();
   if (state.playerIntroActive) positionIntroGif();
   if (state.playerDeployed && !state.playerIntroActive && !state.playerMoving) positionIdleGif();
